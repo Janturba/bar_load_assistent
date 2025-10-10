@@ -1,35 +1,82 @@
 import tkinter as tk
 from tkinter import font
+import tkinter.messagebox as messagebox
 import json
+import re
 
 # --- Load lifter info from file ---
 def load_lifter_info(filename="weight.json"):
     with open(filename, "r") as f:
         return json.load(f)
 
-# --- Button action ---
-def refresh_lifter():
-    new_info = load_lifter_info()
-    update_display(new_info)
+# --- Button action (now accepts optional input) ---
+def refresh_lifter(weight_value=None):
+    """
+    If weight_value is empty/None -> load from JSON.
+    Otherwise try to parse a numeric weight from the string and use it.
+    """
+    # empty -> load from file
+    if weight_value is None or str(weight_value).strip() == "":
+        try:
+            new_info = load_lifter_info()
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load {e}")
+            return
+        update_display(new_info)
+        return
 
+    # try to extract a number (accepts "90", "90kg", "90.5", etc.)
+    s = str(weight_value).strip().lower()
+    m = re.search(r'[-+]?\d*\.?\d+', s)
+    if not m:
+        messagebox.showerror("Invalid input", "Could not parse a number from the input. Using saved value.")
+        try:
+            new_info = load_lifter_info()
+            update_display(new_info)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load fallback value: {e}")
+        return
+
+    try:
+        weight_num = float(m.group())
+    except ValueError:
+        messagebox.showerror("Invalid input", "Parsed value is not a valid number. Using saved value.")
+        try:
+            new_info = load_lifter_info()
+            update_display(new_info)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load fallback value: {e}")
+        return
+
+    # basic sanity check
+    if weight_num < 25:
+        messagebox.showwarning("Weight too low", "Declared weight must be at least 25 kg (bar + collars).")
+        return
+
+    # build same structure your update_display expects
+    info = {"declared_weight": weight_num}
+    update_display(info)
+
+
+# --- (rest of your existing functions unchanged) ---
 plate_colors = {
-"Red": "red",
-"Blue": "blue",
-"Yellow": "gold",
-"Green": "green",
-"White": "white",
-"Black": "black",
-"Silver": "silver"
+    "Red": "red",
+    "Blue": "blue",
+    "Yellow": "gold",
+    "Green": "green",
+    "White": "white",
+    "Black": "black",
+    "Silver": "silver"
 }
 
 plate_weights = {
-"Red": "25",
-"Blue": "20",
-"Yellow": "15",
-"Green": "10",
-"White": "5",
-"Black": "2.5",
-"Silver": "1.25"
+    "Red": "25",
+    "Blue": "20",
+    "Yellow": "15",
+    "Green": "10",
+    "White": "5",
+    "Black": "2.5",
+    "Silver": "1.25"
 }
 
 def get_plates(total_weight, disk_type):
@@ -69,12 +116,12 @@ def calculate_plates(weight):
 
 def draw_plate(canvas, x, y, width, height, text, color):
     rect = canvas.create_rectangle(
-    x, y, x + width, y + height,
-    fill=color, outline="black"
+        x, y, x + width, y + height,
+        fill=color, outline="black"
     )
     text_item = canvas.create_text(
-    x + width / 2, y + height / 2,
-    text=text, font=("Arial", int(height * 0.07), "bold"), fill="white"
+        x + width / 2, y + height / 2,
+        text=text, font=("Arial", int(height * 0.07), "bold"), fill="white"
     )
     return rect, text_item
 
@@ -135,16 +182,42 @@ plates_frame = tk.Frame(root, bg="grey26")
 canvas = tk.Canvas(plates_frame, bg="grey26", highlightthickness=0)
 canvas.pack(fill="both", expand=True)
 
-# Button
-refresh_button = tk.Button(root, text="Refresh Lifter", command=refresh_lifter)
+# Create a separate control window
+control_window = tk.Toplevel(root)
+control_window.title("Lifter Controls")
+control_window.geometry("300x150")
+control_window.configure(bg="grey16")
+
+# Make sure closing the control window doesn't close the app
+control_window.protocol("WM_DELETE_WINDOW", lambda: control_window.withdraw())
 
 # Layout
 weight_label.pack(pady=(10, 0))
 plates_frame.pack(fill="both", expand=True, pady=(20, 0))
-refresh_button.pack(pady=(20, 20))
+
+weight_entry = tk.Entry(control_window, font=sub_font, justify="center")
+weight_entry.pack(pady=(0, 20))
+
+# Add Refresh button to the new control window
+refresh_button = tk.Button(
+    control_window,
+    text="Refresh Lifter",
+    command=lambda: refresh_lifter(weight_entry.get()),  # pass input to function
+    font=sub_font,
+    bg="gray30",
+    fg="white"
+)
+refresh_button.pack(pady=10)
+
+# allow pressing Enter in the entry to trigger refresh
+weight_entry.bind("<Return>", lambda e: refresh_lifter(weight_entry.get()))
 
 # Initial load
 lifter_info = load_lifter_info()
 update_display(lifter_info)
+
+# pre-fill entry with saved value
+weight_entry.delete(0, tk.END)
+weight_entry.insert(0, str(lifter_info.get("declared_weight", "")))
 
 root.mainloop()
