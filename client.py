@@ -4,20 +4,10 @@ import tkinter.messagebox as messagebox
 import json
 import re
 
-def plate_colors(filename, color):
+def get_weight_and_color(filename, key):
     with open(filename, 'r') as f:
         data = json.load(f)
-        return data.get(color)
-
-plate_weights = {
-    "Red": "25",
-    "Blue": "20",
-    "Yellow": "15",
-    "Green": "10",
-    "White": "5",
-    "Black": "2.5",
-    "Silver": "1.25"
-}
+        return data.get(key)
 
 # --- Load lifter info from file ---
 def load_lifter_info(filename="weight.json"):
@@ -152,13 +142,13 @@ def update_display(info):
     x = start_x
     for color, count in plates.items():
         for _ in range(count // 2):
-            weight_value = plate_weights[color]
+            weight_value = get_weight_and_color('./config_data/plates_weight.json', color)
             if weight_value == "5":
-                draw_plate(canvas, x, y, plate_width, plate_height, weight_value, plate_colors('./config_data/plates_colours.json', color), font_color="black")
+                draw_plate(canvas, x, y, plate_width, plate_height, weight_value, get_weight_and_color('./config_data/plates_colours.json', color), font_color="black")
             elif weight_value == "1.25":
-                draw_plate(canvas, x, y, plate_width, plate_height, weight_value, plate_colors('./config_data/plates_colours.json', color), font_color="black")
+                draw_plate(canvas, x, y, plate_width, plate_height, weight_value, get_weight_and_color('./config_data/plates_colours.json', color), font_color="black")
             else:
-                draw_plate(canvas, x, y, plate_width, plate_height, weight_value, plate_colors('./config_data/plates_colours.json', color), font_color="white")
+                draw_plate(canvas, x, y, plate_width, plate_height, weight_value, get_weight_and_color('./config_data/plates_colours.json', color), font_color="white")
             x += plate_width + 10
 
 # --- GUI setup ---
