@@ -4,6 +4,21 @@ import tkinter.messagebox as messagebox
 import json
 import re
 
+def plate_colors(filename, color):
+    with open(filename, 'r') as f:
+        data = json.load(f)
+        return data.get(color)
+
+plate_weights = {
+    "Red": "25",
+    "Blue": "20",
+    "Yellow": "15",
+    "Green": "10",
+    "White": "5",
+    "Black": "2.5",
+    "Silver": "1.25"
+}
+
 # --- Load lifter info from file ---
 def load_lifter_info(filename="weight.json"):
     with open(filename, "r") as f:
@@ -57,28 +72,6 @@ def refresh_lifter(weight_value=None):
     info = {"declared_weight": weight_num}
     update_display(info)
 
-
-# --- (rest of your existing functions unchanged) ---
-plate_colors = {
-    "Red": "red",
-    "Blue": "blue",
-    "Yellow": "gold",
-    "Green": "green",
-    "White": "white",
-    "Black": "black",
-    "Silver": "silver"
-}
-
-plate_weights = {
-    "Red": "25",
-    "Blue": "20",
-    "Yellow": "15",
-    "Green": "10",
-    "White": "5",
-    "Black": "2.5",
-    "Silver": "1.25"
-}
-
 def get_plates(total_weight, disk_type):
     quotient = int(total_weight // disk_type)  # ensure it's an integer
     if quotient % 2 != 0:  # odd disk not allowed!
@@ -114,14 +107,14 @@ def calculate_plates(weight):
     if silvers: plates["Silver"] = silvers
     return plates
 
-def draw_plate(canvas, x, y, width, height, text, color):
+def draw_plate(canvas, x, y, width, height, text, color, font_color):
     rect = canvas.create_rectangle(
         x, y, x + width, y + height,
         fill=color, outline="black"
     )
     text_item = canvas.create_text(
         x + width / 2, y + height / 2,
-        text=text, font=("Arial", int(height * 0.07), "bold"), fill="white"
+        text=text, font=("Arial", int(height * 0.07), "bold"), fill=font_color
     )
     return rect, text_item
 
@@ -160,7 +153,12 @@ def update_display(info):
     for color, count in plates.items():
         for _ in range(count // 2):
             weight_value = plate_weights[color]
-            draw_plate(canvas, x, y, plate_width, plate_height, weight_value, plate_colors[color])
+            if weight_value == "5":
+                draw_plate(canvas, x, y, plate_width, plate_height, weight_value, plate_colors('./config_data/plates_colours.json', color), font_color="black")
+            elif weight_value == "1.25":
+                draw_plate(canvas, x, y, plate_width, plate_height, weight_value, plate_colors('./config_data/plates_colours.json', color), font_color="black")
+            else:
+                draw_plate(canvas, x, y, plate_width, plate_height, weight_value, plate_colors('./config_data/plates_colours.json', color), font_color="white")
             x += plate_width + 10
 
 # --- GUI setup ---
