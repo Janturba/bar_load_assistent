@@ -10,7 +10,7 @@ def get_weight_and_color(filename, key):
         return data.get(key)
 
 # --- Load lifter info from file ---
-def load_lifter_info(filename="weight.json"):
+def load_lifter_info(filename="./config_data/weight.json"):
     with open(filename, "r") as f:
         return json.load(f)
 
@@ -76,7 +76,7 @@ def get_plates(total_weight, disk_type):
         remainder = total_weight - quotient * disk_type
         return quotient, remainder
 
-def calculate_plates(weight):
+def load_bar(weight):
     """Return a dictionary of plates to load for given bar weight"""
     barless_weight = weight - 25  # remove bar + collars
     print(f"Removing bar and collars: {barless_weight}kg")
@@ -115,7 +115,7 @@ def update_display(info):
     canvas.delete("all")
 
     # Calculate plates
-    plates = calculate_plates(info['declared_weight'])
+    plates = load_bar(info['declared_weight'])
 
     # --- Auto scaling ---
     num_plates = sum(count // 2 for count in plates.values())
