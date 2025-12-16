@@ -3,209 +3,245 @@ from tkinter import font
 import tkinter.messagebox as messagebox
 import json
 import re
+import hashlib
 
-def get_weight_and_color(filename, key):
+# --------------------------------------------------
+# Configuration
+# --------------------------------------------------
+
+WEIGHT_FILE = "./config_data/weight.json"
+PLATES_WEIGHT_FILE = "./config_data/plates_weight.json"
+PLATES_COLOUR_FILE = "./config_data/plates_colours.json"
+
+CHECK_INTERVAL_MS = 3000  # 3 seconds
+
+last_weight_hash = None
+current_info = None
+
+# --------------------------------------------------
+# Helpers
+# --------------------------------------------------
+
+def md5_of_file(path, chunk_size=8192):
+    md5 = hashlib.md5()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(chunk_size), b""):
+            md5.update(chunk)
+    return md5.hexdigest()
+
+def get_json_value(filename, key):
     with open(filename, 'r') as f:
         data = json.load(f)
         return data.get(key)
 
-# --- Load lifter info from file ---
-def load_lifter_info(filename="./config_data/weight.json"):
+def load_lifter_info(filename=WEIGHT_FILE):
     with open(filename, "r") as f:
         return json.load(f)
 
-# --- Button action (now accepts optional input) ---
+# --------------------------------------------------
+# Refresh logic
+# --------------------------------------------------
+
 def refresh_lifter(weight_value=None):
-    """
-    If weight_value is empty/None -> load from JSON.
-    Otherwise try to parse a numeric weight from the string and use it.
-    """
-    # empty -> load from file
+    global current_info
+
     if weight_value is None or str(weight_value).strip() == "":
-        try:
-            new_info = load_lifter_info()
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to load {e}")
-            return
-        update_display(new_info)
+        current_info = load_lifter_info()
+        update_display(current_info)
         return
 
-    # try to extract a number (accepts "90", "90kg", "90.5", etc.)
-    s = str(weight_value).strip().lower()
-    m = re.search(r'[-+]?\d*\.?\d+', s)
+    m = re.search(r'[-+]?\d*\.?\d+', str(weight_value))
     if not m:
-        messagebox.showerror("Invalid input", "Could not parse a number from the input. Using saved value.")
-        try:
-            new_info = load_lifter_info()
-            update_display(new_info)
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to load fallback value: {e}")
+        messagebox.showerror("Invalid input", "Could not parse a number.")
         return
 
-    try:
-        weight_num = float(m.group())
-    except ValueError:
-        messagebox.showerror("Invalid input", "Parsed value is not a valid number. Using saved value.")
-        try:
-            new_info = load_lifter_info()
-            update_display(new_info)
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to load fallback value: {e}")
-        return
+    weight_num = float(m.group())
 
-    # basic sanity check
     if weight_num < 25:
-        messagebox.showwarning("Weight too low", "Declared weight must be at least 25 kg (bar + collars).")
+        messagebox.showwarning(
+            "Invalid weight",
+            "Weight must be at least 25 kg (bar + collars)."
+        )
         return
 
-    # build same structure your update_display expects
-    info = {"declared_weight": weight_num}
-    update_display(info)
+    current_info = {
+        "first": "Manual Entry",
+        "declared_weight": weight_num
+    }
+    update_display(current_info)
 
-def get_plates(total_weight, disk_type):
-    quotient = int(total_weight // disk_type)  # ensure it's an integer
-    if quotient % 2 != 0:  # odd disk not allowed!
-        quotient -= 1
-        remainder = total_weight - quotient * disk_type
-        if quotient > 0:
-            return quotient, remainder
-        else:
-            quotient = 0
-            return quotient, remainder
-    else:
-        remainder = total_weight - quotient * disk_type
-        return quotient, remainder
+# --------------------------------------------------
+# Plate math
+# --------------------------------------------------
+
+def get_plates(total_weight, disk_weight):
+    count = int(total_weight // disk_weight)
+    if count % 2 != 0:
+        count -= 1
+    remainder = total_weight - (count * disk_weight)
+    return max(count, 0), remainder
 
 def load_bar(weight):
-    """Return a dictionary of plates to load for given bar weight"""
-    barless_weight = weight - 25  # remove bar + collars
-    print(f"Removing bar and collars: {barless_weight}kg")
+    barless_weight = weight - 25  # bar + collars
     plates = {}
-    reds, remainder = get_plates(barless_weight, 25)
-    if reds: plates["Red"] = reds
-    blues, remainder = get_plates(remainder, 20)
-    if blues: plates["Blue"] = blues
-    yellows, remainder = get_plates(remainder, 15)
-    if yellows: plates["Yellow"] = yellows
-    greens, remainder = get_plates(remainder, 10)
-    if greens: plates["Green"] = greens
-    whites, remainder = get_plates(remainder, 5)
-    if whites: plates["White"] = whites
-    blacks, remainder = get_plates(remainder, 2.5)
-    if blacks: plates["Black"] = blacks
-    silvers, remainder = get_plates(remainder, 1.25)
-    if silvers: plates["Silver"] = silvers
+
+    for name, disk in [
+        ("Red", 25),
+        ("Blue", 20),
+        ("Yellow", 15),
+        ("Green", 10),
+        ("White", 5),
+        ("Black", 2.5),
+        ("Silver", 1.25)
+    ]:
+        count, barless_weight = get_plates(barless_weight, disk)
+        if count:
+            plates[name] = count
+
     return plates
 
-def draw_plate(canvas, x, y, width, height, text, color, font_color):
-    rect = canvas.create_rectangle(
-        x, y, x + width, y + height,
-        fill=color, outline="black"
+# --------------------------------------------------
+# Drawing
+# --------------------------------------------------
+
+def draw_plate(canvas, x, y, w, h, text, color, font_color):
+    canvas.create_rectangle(
+        x, y, x + w, y + h,
+        fill=color,
+        outline="black",
+        width=2
     )
-    text_item = canvas.create_text(
-        x + width / 2, y + height / 2,
-        text=text, font=("Arial", int(height * 0.07), "bold"), fill=font_color
+    canvas.create_text(
+        x + w / 2,
+        y + h / 2,
+        text=text,
+        font=("Arial", max(10, int(h * 0.08)), "bold"),
+        fill=font_color
     )
-    return rect, text_item
 
 def update_display(info):
-    weight_label.config(text=f"{info['declared_weight']} kg")
+    lifter_label.config(text=info.get("first", ""))
+    weight_label.config(text=f"{info.get('declared_weight', '')} kg")
 
-    # Clear canvas
     canvas.delete("all")
+    root.update_idletasks()
 
-    # Calculate plates
-    plates = load_bar(info['declared_weight'])
+    plates = load_bar(info["declared_weight"])
 
-    # --- Auto scaling ---
-    num_plates = sum(count // 2 for count in plates.values())
-    canvas_width = canvas.winfo_width()
-    canvas_height = canvas.winfo_height()
+    canvas_w = canvas.winfo_width()
+    canvas_h = canvas.winfo_height()
 
-    if num_plates > 0:
-        # plate height is a fraction of canvas height
-        plate_height = int(canvas_height * 0.8)
-        # keep a realistic aspect ratio (plates are tall and thin)
-        plate_width = int(plate_height * 0.35)
-        # total width needed for all plates + spacing
-        total_width = num_plates * (plate_width + 10)
-        # center plates if they don't fill canvas
-        start_x = max((canvas_width - total_width) // 2, 20)
-    else:
-        plate_height = int(canvas_height * 0.8)
-        plate_width = int(plate_height * 0.35)
-        start_x = 50
+    if canvas_w < 50 or canvas_h < 50:
+        return
 
-    y = int(canvas_height * 0.1)
+    plate_height = int(canvas_h * 0.8)
+    plate_width = int(plate_height * 0.35)
 
-    # Draw plates
-    x = start_x
-    for color, count in plates.items():
+    plate_pairs = sum(v // 2 for v in plates.values())
+    total_width = plate_pairs * (plate_width + 10)
+
+    x = max((canvas_w - total_width) // 2, 20)
+    y = int(canvas_h * 0.1)
+
+    for plate_name, count in plates.items():
+        weight_val = float(get_json_value(PLATES_WEIGHT_FILE, plate_name))
+        color = get_json_value(PLATES_COLOUR_FILE, plate_name)
+
+        font_color = "black" if weight_val in (1.25, 5) else "white"
+
         for _ in range(count // 2):
-            weight_value = get_weight_and_color('./config_data/plates_weight.json', color)
-            if weight_value == "5":
-                draw_plate(canvas, x, y, plate_width, plate_height, weight_value, get_weight_and_color('./config_data/plates_colours.json', color), font_color="black")
-            elif weight_value == "1.25":
-                draw_plate(canvas, x, y, plate_width, plate_height, weight_value, get_weight_and_color('./config_data/plates_colours.json', color), font_color="black")
-            else:
-                draw_plate(canvas, x, y, plate_width, plate_height, weight_value, get_weight_and_color('./config_data/plates_colours.json', color), font_color="white")
+            draw_plate(
+                canvas,
+                x, y,
+                plate_width,
+                plate_height,
+                str(weight_val),
+                color,
+                font_color
+            )
             x += plate_width + 10
 
-# --- GUI setup ---
+# --------------------------------------------------
+# File watcher (MD5 polling)
+# --------------------------------------------------
+
+def check_weight_file():
+    global last_weight_hash, current_info
+
+    try:
+        new_hash = md5_of_file(WEIGHT_FILE)
+    except FileNotFoundError:
+        root.after(CHECK_INTERVAL_MS, check_weight_file)
+        return
+
+    if last_weight_hash is None:
+        last_weight_hash = new_hash
+
+    elif new_hash != last_weight_hash:
+        print("weight.json changed → refreshing")
+        last_weight_hash = new_hash
+        current_info = load_lifter_info()
+        update_display(current_info)
+
+    root.after(CHECK_INTERVAL_MS, check_weight_file)
+
+# --------------------------------------------------
+# GUI setup
+# --------------------------------------------------
+
 root = tk.Tk()
 root.title("Powerlifting Display")
 root.configure(bg="grey26")
 root.attributes("-fullscreen", True)
-root.bind("<Escape>", lambda event: root.attributes("-fullscreen", False))
+root.bind("<Escape>", lambda e: root.attributes("-fullscreen", False))
 
-# Fonts
 header_font = font.Font(family="Helvetica", size=32, weight="bold")
 sub_font = font.Font(family="Helvetica", size=20)
-weight_font = font.Font(family="Helvetica", size=120, weight="bold")
+weight_font = font.Font(family="Helvetica", size=50, weight="bold")
 
-# Labels
-weight_label = tk.Label(root, text="", font=weight_font, fg="cyan", bg="grey26")
+weight_label = tk.Label(root, font=weight_font, fg="cyan", bg="grey26")
+lifter_label = tk.Label(root, font=weight_font, fg="cyan", bg="grey26")
 
 plates_frame = tk.Frame(root, bg="grey26")
 canvas = tk.Canvas(plates_frame, bg="grey26", highlightthickness=0)
+
+weight_label.pack(pady=(10, 0))
+lifter_label.pack(pady=(10, 0))
+plates_frame.pack(fill="both", expand=True, pady=(20, 0))
 canvas.pack(fill="both", expand=True)
 
-# Create a separate control window
+# Control window
 control_window = tk.Toplevel(root)
 control_window.title("Lifter Controls")
 control_window.geometry("300x150")
 control_window.configure(bg="grey16")
-
-# Make sure closing the control window doesn't close the app
-control_window.protocol("WM_DELETE_WINDOW", lambda: control_window.withdraw())
-
-# Layout
-weight_label.pack(pady=(10, 0))
-plates_frame.pack(fill="both", expand=True, pady=(20, 0))
+control_window.protocol("WM_DELETE_WINDOW", control_window.withdraw)
 
 weight_entry = tk.Entry(control_window, font=sub_font, justify="center")
-weight_entry.pack(pady=(0, 20))
+weight_entry.pack(pady=20)
 
-# Add Refresh button to the new control window
 refresh_button = tk.Button(
     control_window,
     text="Refresh Lifter",
-    command=lambda: refresh_lifter(weight_entry.get()),  # pass input to function
+    command=lambda: refresh_lifter(weight_entry.get()),
     font=sub_font,
     bg="gray30",
     fg="white"
 )
-refresh_button.pack(pady=10)
+refresh_button.pack()
 
-# allow pressing Enter in the entry to trigger refresh
 weight_entry.bind("<Return>", lambda e: refresh_lifter(weight_entry.get()))
 
-# Initial load
-lifter_info = load_lifter_info()
-update_display(lifter_info)
+# --------------------------------------------------
+# Startup
+# --------------------------------------------------
 
-# pre-fill entry with saved value
-weight_entry.delete(0, tk.END)
-weight_entry.insert(0, str(lifter_info.get("declared_weight", "")))
+current_info = load_lifter_info()
+last_weight_hash = md5_of_file(WEIGHT_FILE)
+
+root.update_idletasks()
+update_display(current_info)
+
+check_weight_file()
 
 root.mainloop()
