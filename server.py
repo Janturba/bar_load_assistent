@@ -1,9 +1,32 @@
 import json
 import queue
 import threading
+from turtle import color
 from flask import Flask, request, jsonify
 import tkinter as tk
 import os
+
+class RefereeRegistry:
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.assigned = {
+            "left": False,
+            "center": False,
+            "right": False,
+        }
+
+    def register(self, referee):
+        with self.lock:
+            if referee not in self.assigned:
+                return False, "Invalid referee"
+
+            if self.assigned[referee]:
+                return False, "Position already taken"
+
+            self.assigned[referee] = True
+            return True, "Registered"
+
+referees = RefereeRegistry()
 
 # ===========================
 # Flask server in separate thread
@@ -11,17 +34,38 @@ import os
 app = Flask(__name__)
 color_queue = queue.Queue()
 
+
+
 @app.route("/button", methods=["POST"])
 def button():
     try:
         data = request.get_json(force=True)
-        color = data.get("button", "").lower()
-        if color not in ("red", "white"):
-            return jsonify({"status": "error", "message": "Invalid color"}), 400
-        color_queue.put(color)
-        return jsonify({"status": "ok"})
+        print(data)
+
+        referee = data.get("referee", "").lower()
+        action = data.get("action")
+
+        if action == "register":
+            ok, msg = referees.register(referee)
+            if not ok:
+                return jsonify({"ok": False, "message": msg}), 400
+
+            return jsonify({"ok": True}), 200
+
+        elif action == "vote":
+            color = data.get("button", "").lower()
+            if color not in ("red", "white"):
+                return jsonify({"error": "Invalid color"}), 400
+
+            color_queue.put((referee, color))
+            return jsonify({"ok": True}), 200
+
+        else:
+            return jsonify({"error": "Invalid action"}), 400
+
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 400
+        return jsonify({"error": str(e)}), 400
+
 
 def run_flask():
     # Path to your self-signed cert and key
@@ -54,7 +98,13 @@ class LightUI:
         self.canvas.pack(fill="both", expand=True)
 
         self.circles = []
-        self.current_color = "grey20"
+        self.default_color = "grey20"
+
+        self.referee_to_index = {
+            "left": 0,
+            "center": 1,
+            "right": 2,
+        }
 
         # Draw initial circles after canvas is ready
         self.root.after_idle(self.draw_circles)
@@ -84,24 +134,29 @@ class LightUI:
                 center_y - radius,
                 x + radius,
                 center_y + radius,
-                fill=self.current_color,
+                fill=self.default_color,
                 outline="grey50",
                 width=4
             )
             self.circles.append(circle)
 
     def redraw_circles(self):
-        for c in self.circles:
-            self.canvas.delete(c)
+        self.canvas.delete("all")
         self.draw_circles()
 
     def check_queue(self):
         while not color_queue.empty():
-            new_color = color_queue.get()
-            self.current_color = new_color
-            for c in self.circles:
-                self.canvas.itemconfig(c, fill=new_color)
+            referee, color = color_queue.get()
+
+            index = self.referee_to_index.get(referee)
+            if index is None:
+                continue  # ignore invalid referee
+
+            if 0 <= index < len(self.circles):
+                self.canvas.itemconfig(self.circles[index], fill=color)
+
         self.root.after(100, self.check_queue)
+
 
 # ===========================
 # Main entry point
