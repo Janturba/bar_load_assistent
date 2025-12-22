@@ -97,9 +97,7 @@ class _MyAppState extends State<MyApp> {
           child: SizedBox(
             width: double.infinity,
             child: ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
-              ),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
               onPressed: () => sendVote("red"),
               child: const Text(
                 "FAIL",
@@ -121,6 +119,22 @@ class _MyAppState extends State<MyApp> {
                 "PASS",
                 style: TextStyle(fontSize: 48, fontWeight: FontWeight.bold),
               ),
+            ),
+          ),
+        ),
+
+        // <<< ADDED RESET BUTTON
+        SizedBox(
+          width: double.infinity,
+          height: 80,
+          child: ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.grey.shade800,
+            ),
+            onPressed: resetElection,
+            child: const Text(
+              "RETURN TO VOTE",
+              style: TextStyle(fontSize: 22),
             ),
           ),
         ),
@@ -192,5 +206,27 @@ class _MyAppState extends State<MyApp> {
     } finally {
       client.close();
     }
+  }
+
+  // <<< ADDED RESET CALL
+  Future<void> resetElection() async {
+    final uri = Uri.parse("https://lightsapp.turbovci.co.uk:12345/reset");
+    final client = HttpClient()
+      ..badCertificateCallback =
+          (X509Certificate cert, String host, int port) => true;
+
+    try {
+      final request = await client.postUrl(uri);
+      await request.close();
+    } catch (e) {
+      print("Reset error: $e");
+    } finally {
+      client.close();
+    }
+
+    setState(() {
+      selectedReferee = null;
+      errorMessage = null;
+    });
   }
 }
