@@ -12,6 +12,34 @@ reset_timer = None
 RESET_DELAY = 10  # seconds
 
 # ===========================
+# Round State
+# ===========================
+class RoundState:
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.round_id = 1
+        self.open = True
+
+    def close_round(self):
+        with self.lock:
+            self.open = False
+
+    def open_new_round(self):
+        with self.lock:
+            self.round_id += 1
+            self.open = True
+
+    def snapshot(self):
+        with self.lock:
+            return {
+                "round": self.round_id,
+                "open": self.open
+            }
+
+round_state = RoundState()
+
+
+# ===========================
 # Referee Registry
 # ===========================
 class RefereeRegistry:
@@ -108,7 +136,8 @@ def button():
                 votes = vote_buffer.snapshot()
                 for ref, col in votes.items():
                     color_queue.put((ref, col))
-
+                # Close the vote round    
+                round_state.close_round()
                 # Schedule lights reset after 10 seconds
                 schedule_light_reset()
 
@@ -130,16 +159,26 @@ def schedule_light_reset():
         reset_timer.cancel()
 
     def do_reset():
+        # Reset lights
         color_queue.put(("reset", None))
+
+        # 🔑 Reopen voting for next attempt
+        round_state.open_new_round()
+
+        # Clear votes for next round
+        vote_buffer.clear()
 
     reset_timer = threading.Timer(RESET_DELAY, do_reset)
     reset_timer.daemon = True
     reset_timer.start()
 
+
 @app.route("/reset", methods=["POST"])
 def reset():
     referees.reset()
     vote_buffer.clear()
+    # Open a new round
+    round_state.open_new_round()
 
     # clear pending queue items
     while not color_queue.empty():
@@ -151,6 +190,18 @@ def reset():
     color_queue.put(("right", "grey20"))
 
     return jsonify({"ok": True, "message": "Election reset"}), 200
+
+# ===========================
+# Status Endpoint
+# ===========================
+@app.route("/status", methods=["GET"])
+def status():
+    state = round_state.snapshot()
+    return jsonify({
+        "round": state["round"],
+        "open": state["open"]
+    }), 200
+
 
 # ===========================
 # Flask Runner
